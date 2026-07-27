@@ -152,10 +152,6 @@ No test infrastructure exists. All testing is manual/device-based. Test dependen
 | Security app warns about email | Port 25 (SMTP) is being scanned — benign; no data is transmitted |
 | MAC address shows "Unavailable" | Android 11+ restricts MAC access for non-privileged apps |
 
-## Contributing
-
-Contributions are welcome. Base all work off the `development` branch and submit PRs targeting `development`.
-
 ## License
 
 [GNU General Public License v3.0](./LICENSE)
