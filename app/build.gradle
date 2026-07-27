@@ -19,8 +19,8 @@ android {
     buildToolsVersion '30.0.3'
 
     defaultConfig {
-        minSdkVersion 19
-        targetSdkVersion 32
+        minSdkVersion 31
+        targetSdkVersion 31    // Pinned permanently — see MIGRATION_PLAN.md Section 1
         versionCode 67
         versionName "2.4.5"
         applicationId "com.aaronjwood.portauthority"
