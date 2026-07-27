@@ -3,7 +3,7 @@
 **Repo analyzed:** `PortAuthorityFork` (`com.aaronjwood.portauthority`)
 **Current state:** `compileSdk 31` / `targetSdk 31` / `minSdk 19`, AGP 7.2.2, Gradle 7.3.3, versionCode 67 (`2.4.5`), two flavors (`free`, `donate`), one JNI native library (`ipneigh`) built with `ndk-build`.
 
-**Revision note:** the netlink/SELinux investigation from Section 1 has now been run against real Android 16 devices, and the block reproduces there too. Given that, the decision has been made to **raise `minSdkVersion` from 19 to 31** rather than keep supporting the pre-Android-12 install base. This document has been updated to reflect that — see Section 1 for what this does and doesn't fix, and Section 7.1 for the dependency cleanup it unlocks.
+**Revision note:** the netlink/SELinux investigation from Section 1 has now been run against real Android 16 devices, and the block reproduces there too. Given that, the decision has been made to **raise `minSdkVersion` from 19 to 31** rather than keep supporting the pre-Android-12 install base, and to **keep the native `ipneigh` library as a best-effort mechanism** rather than replace or remove it (Section 1.3). This document has been updated to reflect both — see Section 1 for what raising `minSdk` does and doesn't fix, Section 1.4 for what "best-effort" means in practice, and Section 7.1 for the dependency cleanup the `minSdk` bump unlocks.
 
 This plan is based on a direct read of the project source, not a generic checklist. A few things found in the repo materially change the shape of this migration, most importantly a **2022 commit that deliberately froze `targetSdkVersion` at 31** to work around an Android 12/13 SELinux regression in the app's core host-discovery feature. That issue has to be resolved before anything else here matters — everything else in this plan is fairly standard AGP/SDK-bump work.
 
@@ -27,14 +27,22 @@ Raising the floor to 31 (Android 12, the version where this restriction begins) 
 
 The upside is real: it collapses a genuinely awkward "does the SELinux domain trick even apply to this specific device" branch into a single, always-on code path, and it's what makes the rest of this plan (Section 7.1 especially) meaningfully simpler.
 
-### 1.3 Host-discovery strategy going forward — decision needed
-Since the native path is now confirmed to be dead weight for 100% of the app's supported OS range once `targetSdkVersion` reaches anywhere near current policy requirements, keeping `ipneigh` around only makes sense as a best-effort/legacy-carve-out play, not as the primary mechanism. The three options from the original draft of this plan still apply, but the calculus has shifted:
+### 1.3 Host-discovery strategy going forward — decided: keep the native lib, best-effort
+Since the native path is now confirmed to be dead weight for 100% of the app's supported OS range once `targetSdkVersion` reaches anywhere near current policy requirements, keeping `ipneigh` around only makes sense as a best-effort play, not as a guaranteed mechanism — but that's the direction chosen: **Option A.**
 
-- **A — Keep the native lib as best-effort.** Still attempt `nativeIPNeigh`, still show MAC/vendor info on the rare device/OEM combination where it happens to succeed, fail gracefully (the `errAccessArp` path already exists) everywhere else. Keeps Section 5's NDK/16 KB alignment work in scope for comparatively little payoff, since testing so far suggests it won't succeed on any in-range device.
-- **B — Replace neighbor-table reading with the TCP-connect sweep as the liveness signal.** `ScanHostsRunnable` already attempts a connection to every address in the subnet; treat "connection refused"/fast RST (not just "connection succeeded") as "host is up," and drop reliance on the ARP table for liveness. Host discovery keeps working; **MAC address and vendor (OUI) lookup for other hosts goes away**, since that data is only obtainable via the neighbor table and there's no other permitted API for an app to read another device's MAC address.
-- **C — Drop `ipneigh`, `Android.mk`, and the whole `c/` source tree outright.** Same functional outcome as B, but also removes the entire NDK/`ndk-build` toolchain dependency from the project — no more `externalNativeBuild` block, no 16 KB alignment work in Section 5 at all, no NDK version pinning. Simplest end state, but it's a one-way door: re-adding native ARP reading later would mean rebuilding this from scratch.
+- **A — Keep the native lib as best-effort.** Still attempt `nativeIPNeigh`, still show MAC/vendor info on whatever device/OEM/rooted combination it happens to succeed on, fail gracefully (the `errAccessArp` path already exists) everywhere else.
 
-I'd lean toward **B or C** given the test results — keeping option A alive mostly means carrying real NDK/16 KB compliance cost (Section 5) for a feature that's not expected to work for any currently-supported user. But dropping MAC-vendor detection is a genuine, user-visible feature loss (it's a listed feature in the README), not just a technical cleanup, so I don't want to silently pick one for you.
+For the record, the two alternatives that weren't chosen:
+- *B — TCP-connect sweep as the liveness signal instead of the ARP table*, dropping MAC/vendor lookup entirely but keeping discovery itself working everywhere.
+- *C — Delete `ipneigh`/`Android.mk`/the `c/` tree outright*, same functional result as B but also removes the NDK toolchain dependency from the project.
+
+### 1.4 What "best-effort" means in practice
+Choosing A means Section 5's NDK/16 KB alignment work is **fully in scope, not conditional** — the library still ships, so it still has to meet Play's native-library compliance bar even though it's expected to fail its actual syscall on every currently-tested device. A few things follow from that:
+
+- **Set expectations with the team/users up front.** Given the test results in Section 1.1, budget for this shipping as "MAC/vendor detection doesn't work on most devices" rather than treating a fix as likely. If a future Android release or an OEM-specific policy carve-out changes that, great — but don't plan the release around it.
+- **`errAccessArp` becomes the default-path message for most users, not an edge case.** Worth revisiting the copy on that error state now that it's expected to be the common outcome rather than a rare failure — a message that reads fine for an occasional glitch can read poorly as "this basically never works here."
+- **Consider a one-time "why doesn't this work on my device" note** (in-app or in the README/store listing) rather than a silent per-scan failure each time, since this is now a known, structural limitation rather than a transient bug.
+- **Keep the `avc: denied` logging/telemetry from Section 1.1's investigation around**, even post-ship — it's the cheapest way to notice if some future Android point release, OEM build, or device quietly starts allowing the syscall again.
 
 ---
 
@@ -125,7 +133,7 @@ The manifest only requests `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `ACCESS_
 
 ## 5. Native library: 16 KB page size compliance (targetSdk/compileSdk 36)
 
-**Scope of this section depends on the Section 1.3 decision.** If option C is chosen, this entire section is moot — there's no native library left to align. If option A or B is chosen and `ipneigh.so` still ships (even as best-effort), the work below is still required, since 16 KB compliance is a shipping requirement independent of whether the library actually succeeds at runtime.
+**This section is fully in scope.** Per Section 1.3's decision to keep `ipneigh` as a best-effort mechanism, the library still ships — which means it still has to meet Play's native-library compliance bar, independent of whether the underlying syscall actually succeeds on a given device.
 
 The app ships a real JNI library (`ipneigh`, built via `Android.mk`/`ndk-build`, sources: `ipneigh.c`, `libnetlink.c`, `ll_map.c`, etc.). Starting with the Android 15/16 generation, devices can ship with a 16 KB memory page size instead of 4 KB, and **Google Play requires apps with native libraries targeting recent API levels to be 16 KB–aligned** or they'll fail preflight / be rejected. This applies regardless of whether Section 1's netlink issue is fixed or worked around — as long as `ipneigh.so` ships, it must be compliant.
 
@@ -144,7 +152,7 @@ Concrete gaps found in the repo:
 - Pin the NDK version in `local.properties` / `app/build.gradle`'s `android.ndkVersion` rather than relying on "whatever Android Studio has installed."
 - Rebuild and verify alignment with `zipalign -c -v -p 16 <apk>` or the `check_elf_alignment` script referenced in Android's native-library alignment guidance, before every release build from here on.
 - **Test on an actual 16 KB page-size system image** (available as an emulator system image alongside recent API levels) — this is a real runtime behavior difference, not just a static analysis pass. A misaligned library can crash on load on a 16 KB device even though it links and runs fine in CI.
-- Fold this into the Stage-4 (targetSdk 36) branch from Section 2, since it's the natural point to also finish resolving whether `ipneigh.so` even continues to ship (Section 1.2, option C would make this whole section moot).
+- Fold this into the Stage-4 (targetSdk 36) branch from Section 2 alongside the rest of the 16 KB alignment work — `ipneigh.so` ships regardless (Section 1.3), so there's no remaining "is this moot" question here, just execution.
 
 ---
 
@@ -169,18 +177,22 @@ Concretely, without changes: the custom header (app name + hamburger icon) will 
 
 None of these are hard blockers for reaching targetSdk 36 today, but they're either adjacent deprecations that will matter soon, or debt that makes the rest of this migration harder if left alone.
 
-### 7.1 `minSdkVersion 19` and OkHttp 3.14.9
-The dependency comment is explicit about the tradeoff already being made:
+### 7.1 OkHttp — now unblocked by the `minSdk 31` bump
+The dependency comment explains the constraint that used to apply:
 ```groovy
 implementation 'com.squareup.okhttp3:okhttp:3.14.9' // Anything past 3.12.x will break our Android 4 support!
 ```
-Staying on OkHttp 3.14.9 to support Android 4.4 devices means missing several years of TLS, HTTP/2, and security fixes in the networking stack this app depends on for its download features (`DownloadOuisAsyncTask`, `DownloadPortDataAsyncTask`, `WanIpAsyncTask`). Given how small the remaining Android 4.4 install base is by now, this is worth a deliberate decision rather than default inertia: **raise `minSdkVersion`** (even a modest bump, e.g. to 21+, unlocks modern OkHttp and simplifies TLS handling) or **explicitly keep 19 and document why** the security tradeoff is accepted. Either way, decide this once, in writing, rather than let it be an accident of an old comment.
+That constraint only existed to keep Android 4.4 (`minSdk 19`) working. With `minSdkVersion` now 31, it no longer applies — **bump OkHttp to a current release** as part of the same change that raises `minSdk`. This is a real, concrete win from the Section 1 pivot: several years of TLS/HTTP/2/security fixes in the networking stack backing `DownloadOuisAsyncTask`, `DownloadPortDataAsyncTask`, and `WanIpAsyncTask` become available with no compatibility tradeoff left to weigh. Double-check `proguard-rules.pro`'s OkHttp-era `-dontwarn`/`-keepnames` rules still make sense against whatever version you land on — newer OkHttp releases have changed their R8/consumer-rules setup enough that some of the existing manual rules may now be redundant.
 
 ### 7.2 `ConnectivityManager`/`NetworkInfo` (fully deprecated since API 29)
 `Wireless.isConnectedWifi()` and `MainActivity`'s receiver both use `getNetworkInfo(ConnectivityManager.TYPE_WIFI)` / `WifiManager.EXTRA_NETWORK_INFO`, both deprecated since Android 10 and already unreliable there for reasons unrelated to this migration (the broadcast intentionally omits SSID/BSSID for privacy on 10+). Migrate to `ConnectivityManager.registerDefaultNetworkCallback`/`registerNetworkCallback` with a `NetworkCallback`. Not a hard requirement for API 36 (the old APIs still function), but it's exactly the kind of pre-existing rough edge that gets **more** likely to break with each future SDK bump — worth fixing in the same pass as Section 4.1's receiver-flag fix, since you're already touching this exact code path.
 
-### 7.3 Location-permission UX for SSID reading
-`ssidAccess()` in `MainActivity` requests `ACCESS_FINE_LOCATION` unconditionally on Android 10+. Since Android 12, users can grant only **approximate** location, which is not sufficient to read the connected SSID — the current code doesn't appear to branch on that case (it just goes to `getSSID()` if any location permission was granted). Worth adding a check (`ACCESS_FINE_LOCATION` specifically, not just "any location permission") and a clearer message if the user only grants approximate. Not an API-36 hard requirement, but adjacent enough to the permission code you'll be reading during this work that it's cheap to fix now.
+### 7.3 Location-permission UX for SSID reading — real simplification opportunity under `minSdk 31`
+`ssidAccess()` in `MainActivity` currently branches on `Build.VERSION.SDK_INT >= O` (26) for the whole flow and again on `>= Q` (29) to decide between requesting `ACCESS_COARSE_LOCATION` (Android 8–9 SSID behavior) vs. `ACCESS_FINE_LOCATION` (Android 10+). With `minSdkVersion` now 31, **every supported device is already past both of those checks** — the entire coarse-location / "Android 8-9" branch, and the version-string building around it (`"8-9"` vs `"10+"`), is dead code. This is a good opportunity to delete it and hard-code the fine-location-only flow instead of computing it at runtime.
+
+One real bug worth fixing while you're in there: since Android 12, users can grant only **approximate** location, which is not sufficient to read the connected SSID — the current code doesn't branch on that case, it just proceeds to `getSSID()` if *any* location permission was granted. Worth checking `ACCESS_FINE_LOCATION` specifically (not just "some location permission exists") and showing a clearer message if the user granted only approximate. This was a nice-to-have before; with `minSdk 31` it's the modal case (Android 12+ is where the approximate/precise split was introduced), so it's worth prioritizing over the dead-code cleanup itself.
+
+Keep `ACCESS_COARSE_LOCATION` declared in the manifest alongside `ACCESS_FINE_LOCATION` even after this cleanup — Android requires both to be requested together for the system to show the precise/approximate toggle in the permission dialog at all, even though the app only *uses* the fine-location grant.
 
 ### 7.4 `AsyncTask` (deprecated, not yet removed)
 Used pervasively (`ScanHostsAsyncTask`, `ScanPortsAsyncTask`, `DownloadAsyncTask` and its subclasses, `WolAsyncTask`, `DnsLookupAsyncTask`, `WanIpAsyncTask`). Still functions at API 36, so this is **not a blocker** — call it out as tracked technical debt rather than in-scope work for this migration, unless the team wants to fold an `ExecutorService`/coroutines rewrite into the same effort.
@@ -222,19 +234,20 @@ Given Section 1's history, this app's testing needs are unusually device-sensiti
 
 ## 10. Condensed execution checklist
 
-- [ ] **Investigate** the netlink/SELinux risk in isolation (Section 1) — blocks everything else
-- [ ] Decide fallback strategy (A/B/C) for `ipneigh` if the denial reproduces
+- [x] ~~Investigate the netlink/SELinux risk~~ — confirmed reproducing through Android 16 (Section 1.1)
+- [x] ~~Decide host-discovery strategy~~ — **Option A: keep `ipneigh` as best-effort** (Section 1.3)
+- [ ] Raise `minSdkVersion` to 31, bump OkHttp to current (Sections 1.2, 7.1) — free win regardless
+- [ ] Revisit `errAccessArp` copy for the now-common "didn't work" case, add telemetry for `avc: denied` (Section 1.4)
 - [ ] Upgrade AGP + Gradle wrapper + JDK compat to a version supporting `compileSdk 36` (Section 3)
 - [ ] Fix `BroadcastReceiver` export flag (Section 4.1) — required at targetSdk 33
-- [ ] Ship Stage 1 (targetSdk 33), full device matrix pass
+- [ ] Ship Stage 1 (targetSdk 33 + minSdk 31), full device matrix pass
 - [ ] Ship Stage 2 (targetSdk 34), regression pass
-- [ ] Add `Application.mk` / pin ABIs & NDK version, verify 16 KB alignment (Section 5)
+- [ ] Add `Application.mk` / pin ABIs & NDK version, verify 16 KB alignment for `ipneigh.so` (Section 5)
 - [ ] Implement edge-to-edge insets handling across all 5 activity layouts (Section 6)
 - [ ] Ship Stage 3 (targetSdk 35), dedicated visual QA pass
-- [ ] Complete Stage 4 (targetSdk 36), full native + device matrix pass including 16 KB emulator image
-- [ ] Decide & document `minSdkVersion`/OkHttp tradeoff (Section 7.1)
+- [ ] Complete Stage 4 (targetSdk 36), full device matrix pass + 16 KB emulator image
 - [ ] Migrate `ConnectivityManager`/`NetworkInfo` usage (Section 7.2)
-- [ ] Fix approximate-location handling in `ssidAccess()` (Section 7.3)
+- [ ] Delete dead coarse-location branch, fix approximate-location handling in `ssidAccess()` (Section 7.3)
 - [ ] Remove unused `legacy-support-v4` dependency, bump test deps (Sections 7.5–7.6)
 - [ ] Re-validate ProGuard/R8 rules against the new AGP/R8 defaults on a real release build
 - [ ] Staged Play Console rollout per stage, F-Droid metadata follow-up
