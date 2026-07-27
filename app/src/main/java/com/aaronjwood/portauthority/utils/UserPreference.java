@@ -23,8 +23,7 @@ public class UserPreference {
     private static final String LAN_SOCKET_TIMEOUT = "lanTimeout";
     private static final String WAN_SOCKET_TIMEOUT = "wanTimeout";
     private static final String HOST_SOCKET_TIMEOUT = "hostTimeout";
-    private static final String COARSE_LOCATION_PERM_DIAG = "COARSE_LOCATION";
-    private static final String FINE_LOCATION_PERM_DIAG = "FINE_LOCATION";
+    private static final String LOCATION_PERM_DIAG = "LOCATION_PERMISSION";
 
     private static final String DEFAULT_WAN_SOCKET_TIMEOUT = "8000";
     private static final String DEFAULT_LAN_SOCKET_TIMEOUT = "4000";
@@ -33,35 +32,19 @@ public class UserPreference {
 
 
     /**
-     * Saves the state of the coarse location permission dialog.
+     * Saves the state of the location permission dialog.
      */
-    public static void saveCoarseLocationPermDiag(@NonNull Context context) {
+    public static void saveLocationPermDiag(@NonNull Context context) {
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-        preferences.edit().putBoolean(COARSE_LOCATION_PERM_DIAG, true).apply();
+        preferences.edit().putBoolean(LOCATION_PERM_DIAG, true).apply();
     }
 
     /**
-     * Saves the state of the fine location permission dialog.
+     * Gets the state of the location permission dialog.
      */
-    public static void saveFineLocationPermDiag(@NonNull Context context) {
+    public static boolean getLocationPermDiag(@NonNull Context context) {
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-        preferences.edit().putBoolean(FINE_LOCATION_PERM_DIAG, true).apply();
-    }
-
-    /**
-     * Saves the state of the coarse location permission dialog.
-     */
-    public static boolean getCoarseLocationPermDiag(@NonNull Context context) {
-        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-        return preferences.getBoolean(COARSE_LOCATION_PERM_DIAG, false);
-    }
-
-    /**
-     * Saves the state of the fine location permission dialog.
-     */
-    public static boolean getFineLocationPermDiag(@NonNull Context context) {
-        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-        return preferences.getBoolean(FINE_LOCATION_PERM_DIAG, false);
+        return preferences.getBoolean(LOCATION_PERM_DIAG, false);
     }
 
     /**

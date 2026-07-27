@@ -71,7 +71,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class MainActivity extends AppCompatActivity implements MainAsyncResponse {
 
     private final static int TIMER_INTERVAL = 1500;
-    private final static int COARSE_LOCATION_REQUEST = 1;
     private final static int FINE_LOCATION_REQUEST = 2;
 
     private Wireless wifi;
@@ -151,49 +150,50 @@ public final class MainActivity extends AppCompatActivity implements MainAsyncRe
     }
 
     /**
-     * Android 8+ now requires extra location permissions to read the SSID.
-     * Determine what permissions to prompt the user for based on saved state.
+     * Android 12+ requires fine location permission to read the SSID.
+     * Prompt the user for permission if not already granted.
      *
      * @param context
      */
     private void ssidAccess(Context context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (UserPreference.getCoarseLocationPermDiag(context) || UserPreference.getFineLocationPermDiag(context)) {
+        if (UserPreference.getLocationPermDiag(context)) {
+            return;
+        }
+
+        Activity activity = this;
+        String message = getResources().getString(R.string.ssidFineMsg, "12+");
+        String title = getResources().getString(R.string.ssidAccessTitle, "12+");
+        new AlertDialog.Builder(activity, R.style.DialogTheme).setTitle(title)
+                .setMessage(message)
+                .setPositiveButton(android.R.string.ok, (dialogInterface, i) -> {
+                    dialogInterface.dismiss();
+                    UserPreference.saveLocationPermDiag(context);
+
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                        ActivityCompat.requestPermissions(activity, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, FINE_LOCATION_REQUEST);
+                    }
+                })
+                .setIcon(android.R.drawable.ic_dialog_alert).show().setCanceledOnTouchOutside(false);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        if (requestCode == FINE_LOCATION_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED
+                    && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                 return;
             }
-
-            Activity activity = this;
-            String version = "8-9";
-            String message = getResources().getString(R.string.ssidCoarseMsg, version);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                version = "10+";
-                message = getResources().getString(R.string.ssidFineMsg, version);
-            }
-
-            String title = getResources().getString(R.string.ssidAccessTitle, version);
-            new AlertDialog.Builder(activity, R.style.DialogTheme).setTitle(title)
-                    .setMessage(message)
-                    .setPositiveButton(android.R.string.ok, (dialogInterface, i) -> {
-                        dialogInterface.dismiss();
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            UserPreference.saveFineLocationPermDiag(context);
-                        } else {
-                            UserPreference.saveCoarseLocationPermDiag(context);
-                        }
-
-                        String perm = Manifest.permission.ACCESS_COARSE_LOCATION;
-                        int request = COARSE_LOCATION_REQUEST;
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            perm = Manifest.permission.ACCESS_FINE_LOCATION;
-                            request = FINE_LOCATION_REQUEST;
-                        }
-
-                        if (ContextCompat.checkSelfPermission(context, perm) != PackageManager.PERMISSION_GRANTED) {
-                            ActivityCompat.requestPermissions(activity, new String[]{perm}, request);
-                        }
+            new AlertDialog.Builder(this, R.style.DialogTheme)
+                    .setTitle(getResources().getString(R.string.ssidAccessTitle, "12+"))
+                    .setMessage(getResources().getString(R.string.ssidRequiresPrecise))
+                    .setPositiveButton(android.R.string.ok, (dialog, i) -> {
+                        dialog.dismiss();
+                        ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, FINE_LOCATION_REQUEST);
                     })
                     .setIcon(android.R.drawable.ic_dialog_alert).show().setCanceledOnTouchOutside(false);
+            return;
         }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
     /**
@@ -834,3 +834,4 @@ public final class MainActivity extends AppCompatActivity implements MainAsyncRe
         scanHandler.post(() -> Errors.showError(getApplicationContext(), output.getLocalizedMessage()));
     }
 }
+

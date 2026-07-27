@@ -74,4 +74,5 @@
     <string name="errReadArp">Unable to read ARP table</string>
     <string name="errExternIp">Couldn\'t get your external IP</string>
     <string name="nonPrivilegedMacAccess">Unavailable for non-privileged apps starting with Android 11</string>
+    <string name="ssidRequiresPrecise">Precise location permission is required to read the Wi-Fi SSID. Only approximate permission was granted. Please try again and choose \"Precise\" or \"Allow all the time\" when prompted.</string>
 </resources>
