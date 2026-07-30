@@ -147,6 +147,19 @@ public class Database extends SQLiteOpenHelper {
     }
 
     /**
+     * Returns true if the ouis table has at least one row.
+     */
+    public boolean isOuiTablePopulated() {
+        Cursor cursor = db.rawQuery("SELECT COUNT(*) FROM " + OUI_TABLE, null);
+        boolean populated = false;
+        if (cursor.moveToFirst()) {
+            populated = cursor.getInt(0) > 0;
+        }
+        cursor.close();
+        return populated;
+    }
+
+    /**
      * Searches for a vendor based on the provided MAC address.
      *
      * @param mac

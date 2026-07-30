@@ -140,8 +140,8 @@ public final class MainActivity extends AppCompatActivity implements MainAsyncRe
         wifi = new Wireless(context);
         scanHandler = new Handler(Looper.getMainLooper());
 
-        checkDatabase();
         db = Database.getInstance(context);
+        checkDatabase();
 
         setupHostsAdapter();
         setupDrawer();
@@ -203,11 +203,19 @@ public final class MainActivity extends AppCompatActivity implements MainAsyncRe
      * Determines if the initial download of OUI and port data needs to be done.
      */
     public void checkDatabase() {
-        if (getDatabasePath(Database.DATABASE_NAME).exists()) {
+        final MainActivity activity = this;
+        boolean dbExists = getDatabasePath(Database.DATABASE_NAME).exists();
+
+        if (dbExists && db.isOuiTablePopulated()) {
             return;
         }
 
-        final MainActivity activity = this;
+        if (dbExists) {
+            ouiTask = new DownloadOuisAsyncTask(db, new OuiParser(), activity);
+            ouiTask.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+            return;
+        }
+
         new AlertDialog.Builder(activity, R.style.DialogTheme)
                 .setTitle(R.string.ouiDbTitle)
                 .setMessage(R.string.ouiDbMsg)
