@@ -4,9 +4,8 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.os.AsyncTask;
 
-import com.aaronjwood.portauthority.R;
-import com.aaronjwood.portauthority.response.HostAsyncResponse;
 import com.aaronjwood.portauthority.response.MainAsyncResponse;
+import com.aaronjwood.portauthority.response.WanIpResult;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -16,53 +15,40 @@ import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-public class WanIpAsyncTask extends AsyncTask<Void, Void, String> {
+public class WanIpAsyncTask extends AsyncTask<Void, Void, WanIpResult> {
 
-    private static final String EXTERNAL_IP_SERVICE = "https://icanhazip.com/";
+    private static final String IPV4_SERVICE = "https://ipv4.icanhazip.com/";
+    private static final String IPV6_SERVICE = "https://ipv6.icanhazip.com/";
     private final WeakReference<MainAsyncResponse> delegate;
 
-    /**
-     * Constructor to set the delegate
-     *
-     * @param delegate Called when the external IP has been fetched
-     */
     public WanIpAsyncTask(MainAsyncResponse delegate) {
         this.delegate = new WeakReference<>(delegate);
     }
 
-    /**
-     * Fetch the external IP address
-     *
-     * @param params
-     * @return External IP address
-     */
-    @Override
-    @SuppressLint("NewApi")
-    protected String doInBackground(Void... params) {
-        MainAsyncResponse activity = delegate.get();
-        Context ctx = (Context) activity;
+    private String fetchIp(String url) {
         OkHttpClient httpClient = new OkHttpClient();
-        Request request = new Request.Builder().url(EXTERNAL_IP_SERVICE).build();
-
+        Request request = new Request.Builder().url(url).build();
         try (Response response = httpClient.newCall(request).execute()) {
             ResponseBody body = response.body();
             if (!response.isSuccessful() || body == null) {
-                return ctx.getResources().getString(R.string.errExternIp);
+                return null;
             }
-
             return body.string().trim();
         } catch (IOException e) {
-            return ctx.getResources().getString(R.string.errExternIp);
+            return null;
         }
     }
 
-    /**
-     * Calls the delegate when the external IP has been fetched
-     *
-     * @param result External IP address
-     */
     @Override
-    protected void onPostExecute(String result) {
+    @SuppressLint("NewApi")
+    protected WanIpResult doInBackground(Void... params) {
+        String ipv4 = fetchIp(IPV4_SERVICE);
+        String ipv6 = fetchIp(IPV6_SERVICE);
+        return new WanIpResult(ipv4, ipv6);
+    }
+
+    @Override
+    protected void onPostExecute(WanIpResult result) {
         MainAsyncResponse activity = delegate.get();
         if (activity != null) {
             activity.processFinish(result);

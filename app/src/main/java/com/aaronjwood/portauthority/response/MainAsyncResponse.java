@@ -29,6 +29,13 @@ public interface MainAsyncResponse extends ErrorAsyncResponse {
     void processFinish(String output);
 
     /**
+     * Delegate to handle WAN IP result (IPv4 + IPv6)
+     *
+     * @param result
+     */
+    void processFinish(WanIpResult result);
+
+    /**
      * Delegate to handle boolean outputs
      *
      * @param output

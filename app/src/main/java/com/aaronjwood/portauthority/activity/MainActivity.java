@@ -57,6 +57,7 @@ import com.aaronjwood.portauthority.network.Wireless;
 import com.aaronjwood.portauthority.parser.OuiParser;
 import com.aaronjwood.portauthority.parser.PortParser;
 import com.aaronjwood.portauthority.response.MainAsyncResponse;
+import com.aaronjwood.portauthority.response.WanIpResult;
 import com.aaronjwood.portauthority.utils.Errors;
 import com.aaronjwood.portauthority.utils.UserPreference;
 
@@ -77,7 +78,8 @@ public final class MainActivity extends AppCompatActivity implements MainAsyncRe
     private ListView hostList;
     private TextView internalIp;
     private TextView externalIp;
-    private String cachedWanIp;
+    private WanIpResult wanIpResult;
+    private boolean showingIpv4 = true;
     private TextView signalStrength;
     private TextView ssid;
     private TextView bssid;
@@ -126,6 +128,7 @@ public final class MainActivity extends AppCompatActivity implements MainAsyncRe
 
         internalIp = findViewById(R.id.internalIpAddress);
         externalIp = findViewById(R.id.externalIpAddress);
+        findViewById(R.id.externalIpAddressLabel).setOnClickListener(v -> toggleWanIpDisplay());
         signalStrength = findViewById(R.id.signalStrength);
         ssid = findViewById(R.id.ssid);
         bssid = findViewById(R.id.bssid);
@@ -668,18 +671,20 @@ public final class MainActivity extends AppCompatActivity implements MainAsyncRe
      */
     private void getExternalIp() {
         TextView label = findViewById(R.id.externalIpAddressLabel);
-        TextView ip = findViewById(R.id.externalIpAddress);
+        TextView ipView = findViewById(R.id.externalIpAddress);
 
         if (UserPreference.getFetchExternalIp(this)) {
             label.setVisibility(View.VISIBLE);
-            ip.setVisibility(View.VISIBLE);
+            ipView.setVisibility(View.VISIBLE);
 
-            if (cachedWanIp == null) {
+            if (wanIpResult == null) {
                 wifi.getExternalIpAddress(this);
+            } else {
+                updateWanIpDisplay();
             }
         } else {
             label.setVisibility(View.GONE);
-            ip.setVisibility(View.GONE);
+            ipView.setVisibility(View.GONE);
         }
     }
 
@@ -737,7 +742,8 @@ public final class MainActivity extends AppCompatActivity implements MainAsyncRe
                 adapterData.add(item);
             }
             savedState.putSerializable("hosts", adapterData);
-            savedState.putString("wanIp", cachedWanIp);
+            savedState.putSerializable("wanIpResult", wanIpResult);
+            savedState.putBoolean("showingIpv4", showingIpv4);
         }
     }
 
@@ -751,8 +757,11 @@ public final class MainActivity extends AppCompatActivity implements MainAsyncRe
     public void onRestoreInstanceState(Bundle savedState) {
         super.onRestoreInstanceState(savedState);
 
-        cachedWanIp = savedState.getString("wanIp");
-        externalIp.setText(cachedWanIp);
+        wanIpResult = (WanIpResult) savedState.getSerializable("wanIpResult");
+        showingIpv4 = savedState.getBoolean("showingIpv4", true);
+        if (wanIpResult != null) {
+            updateWanIpDisplay();
+        }
         hosts = (ArrayList<Host>) savedState.getSerializable("hosts");
         if (hosts != null) {
             setupHostsAdapter();
@@ -799,14 +808,58 @@ public final class MainActivity extends AppCompatActivity implements MainAsyncRe
     }
 
     /**
-     * Delegate to handle setting the external IP in the UI
+     * Toggle between showing IPv4 and IPv6 when the label is tapped
+     */
+    private void toggleWanIpDisplay() {
+        if (wanIpResult == null) return;
+        if (showingIpv4 && wanIpResult.hasIpv6()) {
+            showingIpv4 = false;
+            updateWanIpDisplay();
+        } else if (!showingIpv4 && wanIpResult.hasIpv4()) {
+            showingIpv4 = true;
+            updateWanIpDisplay();
+        }
+    }
+
+    /**
+     * Update the UI to show the current WAN IP version
+     */
+    private void updateWanIpDisplay() {
+        if (wanIpResult == null) return;
+        TextView label = findViewById(R.id.externalIpAddressLabel);
+        if (wanIpResult.hasIpv4() && wanIpResult.hasIpv6()) {
+            label.setText(showingIpv4 ? "WAN IP (IPv4)" : "WAN IP (IPv6)");
+            externalIp.setText(showingIpv4 ? wanIpResult.getIpv4() : wanIpResult.getIpv6());
+        } else if (wanIpResult.hasIpv4()) {
+            label.setText(R.string.externalIpLabel);
+            externalIp.setText(wanIpResult.getIpv4());
+        } else if (wanIpResult.hasIpv6()) {
+            label.setText(R.string.externalIpLabel);
+            externalIp.setText(wanIpResult.getIpv6());
+        }
+    }
+
+    /**
+     * Delegate to handle the WAN IP result (IPv4 + IPv6)
      *
-     * @param output External IP
+     * @param result WAN IP result
+     */
+    @Override
+    public void processFinish(WanIpResult result) {
+        wanIpResult = result;
+        if (!result.hasIpv4() && !result.hasIpv6()) {
+            externalIp.setText(getResources().getString(R.string.errExternIp));
+            return;
+        }
+        showingIpv4 = result.hasIpv4();
+        updateWanIpDisplay();
+    }
+
+    /**
+     * Unused — kept to satisfy MainAsyncResponse interface
      */
     @Override
     public void processFinish(String output) {
-        cachedWanIp = output;
-        externalIp.setText(output);
     }
 
     /**
