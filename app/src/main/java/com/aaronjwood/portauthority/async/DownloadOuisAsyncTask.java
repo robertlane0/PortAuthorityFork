@@ -9,8 +9,7 @@ import java.lang.ref.WeakReference;
 
 public class DownloadOuisAsyncTask extends DownloadAsyncTask {
 
-    // The official source on gitlab.com doesn't provide a content length header which ruins our ability to report progress!
-    private static final String SERVICE = "https://raw.githubusercontent.com/wireshark/wireshark/master/manuf";
+    private static final String SERVICE = "https://web.archive.org/web/20200807021541if_/https://raw.githubusercontent.com/wireshark/wireshark/master/manuf";
 
     /**
      * Creates a new asynchronous task to handle downloading OUI data.

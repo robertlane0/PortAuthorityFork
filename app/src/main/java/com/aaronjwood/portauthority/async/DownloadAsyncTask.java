@@ -14,8 +14,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
-import java.util.zip.GZIPInputStream;
-
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -79,7 +77,6 @@ public abstract class DownloadAsyncTask extends AsyncTask<Void, DownloadProgress
         OkHttpClient client = new OkHttpClient();
         Request request = new Request.Builder()
                 .url(service)
-                .addHeader("Accept-Encoding", "gzip")
                 .build();
         try {
             try (Response response = client.newCall(request).execute()) {
@@ -95,7 +92,7 @@ public abstract class DownloadAsyncTask extends AsyncTask<Void, DownloadProgress
                     return;
                 }
 
-                in = new BufferedReader(new InputStreamReader(new GZIPInputStream(body.byteStream()), StandardCharsets.UTF_8));
+                in = new BufferedReader(new InputStreamReader(body.byteStream(), StandardCharsets.UTF_8));
                 String line;
                 long total = 0;
                 while ((line = in.readLine()) != null) {
